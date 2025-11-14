@@ -1,0 +1,187 @@
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                    FASTAPI-SQLMODEL APPLICATION ARCHITECTURE                 ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           CLIENT LAYER                                       │
+│                    (HTTP Client / Browser / Postman)                         │
+└───────────────────────────────┬─────────────────────────────────────────────┘
+                                │
+                                │ HTTP Requests (GET, POST, PUT, DELETE)
+                                │
+                                ↓
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        APPLICATION LAYER                                     │
+│                              main.py                                         │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │ • FastAPI App Initialization                                        │   │
+│  │ • Environment Variable Loading (.env)                               │   │
+│  │ • Router Registration (/api/v1)                                     │   │
+│  │ • Startup Event: create_db_and_tables()                             │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+└───────────────────────────────┬─────────────────────────────────────────────┘
+                                │
+                                │ includes router
+                                │
+                                ↓
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         PRESENTATION LAYER                                   │
+│                              api.py                                          │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │  Endpoints:                                                           │   │
+│  │  • POST   /api/v1/books/      → create()                             │   │
+│  │  • GET    /api/v1/books/      → read_all()                           │   │
+│  │  • GET    /api/v1/books/{id}  → read()                               │   │
+│  │  • PUT    /api/v1/books/{id}  → update()                             │   │
+│  │  • DELETE /api/v1/books/{id}  → delete()                             │   │
+│  │                                                                       │   │
+│  │  Dependencies:                                                        │   │
+│  │  • Depends(get_session) → database.py                               │   │
+│  │  • BookCreate/BookRead/BookUpdate → schemas.py                       │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+└───────────────┬───────────────────────────────┬─────────────────────────────┘
+                │                               │
+                │ calls CRUD functions          │ validates with schemas
+                │                               │
+                ↓                               ↓
+┌───────────────────────────────┐   ┌──────────────────────────────────────────┐
+│    BUSINESS LOGIC LAYER       │   │      VALIDATION LAYER                    │
+│          crud.py              │   │         schemas.py                       │
+│  ┌─────────────────────────┐  │   │  ┌────────────────────────────────────┐ │
+│  │ • create_book()         │  │   │  │ • BookCreate (request)             │ │
+│  │ • get_book()            │  │   │  │ • BookRead (response)              │ │
+│  │ • get_books()           │  │   │  │ • BookUpdate (partial update)      │ │
+│  │ • update_book()         │  │   │  │ • BookSearchResults (pagination)   │ │
+│  │ • delete_book()         │  │   │  └────────────────────────────────────┘ │
+│  └─────────────────────────┘  │   └──────────────────────────────────────────┘
+│                                │
+│  Uses:                         │
+│  • Book model (models.py)      │
+│  • Session (database.py)       │
+│  • BookCreate/BookUpdate       │
+└───────────────┬────────────────┘
+                │
+                │ uses Book model
+                │
+                ↓
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         DATA ACCESS LAYER                                    │
+│  ┌──────────────────────────────┐  ┌──────────────────────────────────────┐ │
+│  │        models.py             │  │        database.py                   │ │
+│  │  ┌────────────────────────┐  │  │  ┌────────────────────────────────┐ │ │
+│  │  │ • BookBase             │  │  │  │ • engine (SQLAlchemy)          │ │ │
+│  │  │   - title, author      │  │  │  │ • create_db_and_tables()       │ │ │
+│  │  │   - year, price        │  │  │  │ • get_session() (dependency)   │ │ │
+│  │  │   - in_stock           │  │  │  └────────────────────────────────┘ │ │
+│  │  │   - timestamps         │  │  │                                     │ │
+│  │  │                        │  │  │  Creates tables from:              │ │
+│  │  │ • Book (table=True)    │  │  │  SQLModel.metadata (from models)   │ │
+│  │  │   - id (PK)            │  │  │                                     │ │
+│  │  │   - update_timestamp() │  │  │  Provides sessions to:             │ │
+│  │  └────────────────────────┘  │  │  api.py → crud.py                  │ │
+│  └──────────────────────────────┘  └──────────────────────────────────────┘ │
+└───────────────────────────────┬─────────────────────────────────────────────┘
+                                │
+                                │ SQL Queries
+                                │
+                                ↓
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           DATABASE LAYER                                     │
+│                    SQLite (default) or MySQL                                 │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │  Table: books                                                        │   │
+│  │  • id (INTEGER PRIMARY KEY)                                          │   │
+│  │  • title (TEXT, indexed)                                             │   │
+│  │  • author (TEXT, indexed)                                            │   │
+│  │  • year (INTEGER)                                                    │   │
+│  │  • price (REAL)                                                      │   │
+│  │  • in_stock (BOOLEAN)                                                │   │
+│  │  • description (TEXT, nullable)                                      │   │
+│  │  • created_at (DATETIME)                                             │   │
+│  │  • updated_at (DATETIME)                                             │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+
+═══════════════════════════════════════════════════════════════════════════════
+                            DATA FLOW EXAMPLE
+═══════════════════════════════════════════════════════════════════════════════
+
+CREATE BOOK REQUEST FLOW:
+
+Client → POST /api/v1/books/ + JSON body
+    ↓
+main.py → Routes to api.py
+    ↓
+api.py → Validates JSON against BookCreate schema
+    ↓
+api.py → Injects database session (get_session from database.py)
+    ↓
+api.py → Calls create_book(session, book) from crud.py
+    ↓
+crud.py → Converts BookCreate → Book model
+    ↓
+crud.py → session.add(Book) → session.commit()
+    ↓
+database.py → Executes SQL INSERT via engine
+    ↓
+Database → Stores book record
+    ↓
+crud.py → Returns Book model
+    ↓
+api.py → FastAPI converts Book → BookRead schema
+    ↓
+Client ← JSON response with book data
+
+
+═══════════════════════════════════════════════════════════════════════════════
+                            FILE DEPENDENCIES
+═══════════════════════════════════════════════════════════════════════════════
+
+main.py
+  ├──→ database.py (create_db_and_tables)
+  └──→ api.py (router)
+
+api.py
+  ├──→ crud.py (all CRUD functions)
+  ├──→ schemas.py (BookCreate, BookRead, BookUpdate)
+  └──→ database.py (get_session dependency)
+
+crud.py
+  ├──→ models.py (Book)
+  └──→ schemas.py (BookCreate, BookUpdate)
+
+database.py
+  └──→ models.py (SQLModel.metadata - implicit)
+
+models.py
+  └──→ (standalone, uses SQLModel)
+
+schemas.py
+  └──→ (standalone, uses SQLModel/Pydantic)
+
+
+═══════════════════════════════════════════════════════════════════════════════
+                            KEY CONCEPTS
+═══════════════════════════════════════════════════════════════════════════════
+
+1. SEPARATION OF CONCERNS
+   • Models: Database structure
+   • Schemas: API contracts
+   • CRUD: Business logic
+   • API: HTTP handling
+
+2. DEPENDENCY INJECTION
+   • FastAPI's Depends() injects database sessions
+   • No global state, testable components
+
+3. TYPE SAFETY
+   • SQLModel combines SQLAlchemy + Pydantic
+   • Type hints throughout
+   • Runtime validation
+
+4. LAYERED ARCHITECTURE
+   • Clear boundaries between layers
+   • Easy to test and maintain
+   • Scalable structure
+
