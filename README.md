@@ -28,6 +28,9 @@ fastapi-sqlmodel-app/
 │
 ├── .env.example        # Example environment variables
 ├── requirements.txt    # Python dependencies
+├── Dockerfile          # Docker image configuration
+├── docker-compose.yml   # Docker Compose configuration
+├── .dockerignore       # Files to exclude from Docker build
 └── README.md           # This guide
 ```
 
@@ -97,9 +100,17 @@ This creates a file named `test.db` in the project root.
 
 ---
 
-### 4.2. MySQL via Docker (optional)
+### 4.2. MySQL via Docker Compose (Recommended)
 
-If you want to mimic a production‑style DB:
+When using `docker-compose up`, MySQL is automatically configured and connected. The database connection string is set in `docker-compose.yml`:
+
+```text
+DATABASE_URL=mysql+pymysql://bookstore_user:bookstore_password@db:3306/bookstore_db
+```
+
+### 4.3. MySQL via Docker (Standalone - Optional)
+
+If you want to run MySQL separately:
 
 ```bash
 docker run --name fastapi-mysql \
@@ -110,7 +121,7 @@ docker run --name fastapi-mysql \
   -d mysql:latest
 ```
 
-Then set in your `.env` (you will create it from the example below):
+Then set in your `.env`:
 
 ```text
 DATABASE_URL="mysql+pymysql://root:<your_root_password>@127.0.0.1:3306/fastapi_db"
@@ -255,6 +266,49 @@ app.include_router(router, prefix="/api/v1")
 ---
 
 ## 7. Running the Application
+
+### 7.1. Using Docker Compose (Recommended)
+
+The easiest way to run the application with MySQL database:
+
+```bash
+# Build and start all services
+docker-compose up -d
+
+# View logs
+docker-compose logs -f
+
+# Stop services
+docker-compose down
+
+# Stop and remove volumes (clean slate)
+docker-compose down -v
+```
+
+Once running, access:
+- Root: `http://127.0.0.1:8000/`
+- Swagger UI: `http://127.0.0.1:8000/docs`
+- List books: `http://127.0.0.1:8000/api/v1/books/`
+
+### 7.2. Using Docker (Standalone)
+
+Build the Docker image:
+
+```bash
+docker build -t fastapi-bookstore .
+```
+
+Run the container (with SQLite):
+
+```bash
+docker run -p 8000:8000 \
+  -e DATABASE_URL=sqlite:///./test.db \
+  -e API_TITLE="BookStore API" \
+  -e API_VERSION="1.0.0" \
+  fastapi-bookstore
+```
+
+### 7.3. Local Development (Without Docker)
 
 From the project root with the virtualenv activated:
 

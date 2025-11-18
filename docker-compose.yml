@@ -1,0 +1,55 @@
+version: '3.8'
+
+services:
+  # FastAPI Application
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: fastapi-bookstore-api
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=mysql+pymysql://bookstore_user:bookstore_password@db:3306/bookstore_db
+      - API_TITLE=BookStore API
+      - API_VERSION=1.0.0
+      - ROOT_PATH=/
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./app:/app/app
+    restart: unless-stopped
+    networks:
+      - bookstore-network
+
+  # MySQL Database
+  db:
+    image: mysql:8.0
+    container_name: fastapi-bookstore-db
+    environment:
+      - MYSQL_ROOT_PASSWORD=root_password
+      - MYSQL_DATABASE=bookstore_db
+      - MYSQL_USER=bookstore_user
+      - MYSQL_PASSWORD=bookstore_password
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-proot_password"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - bookstore-network
+
+volumes:
+  mysql_data:
+    driver: local
+
+networks:
+  bookstore-network:
+    driver: bridge
+

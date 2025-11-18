@@ -42,6 +42,9 @@ fastapi-sqlmodel-app/
 │   └── database.py       # Database configuration
 ├── .env                  # Environment variables
 ├── requirements.txt      # Dependencies
+├── Dockerfile           # Docker image configuration
+├── docker-compose.yml   # Docker Compose configuration
+├── .dockerignore        # Files to exclude from Docker build
 └── README.md
 ```
 
@@ -188,102 +191,116 @@ def get_session():
 
 ---
 
+## Architecture Diagrams
+
+### System Architecture (Mermaid)
+
+```mermaid
+graph TB
+    Client[Client/Browser] -->|HTTP Request| FastAPI[FastAPI Application]
+    FastAPI -->|Routes| API[API Layer<br/>api.py]
+    API -->|Validates| Schema[Schemas<br/>schemas.py]
+    API -->|Calls| CRUD[Business Logic<br/>crud.py]
+    CRUD -->|Uses| Model[Models<br/>models.py]
+    CRUD -->|Session| DB[Database Layer<br/>database.py]
+    DB -->|SQL Queries| MySQL[(MySQL Database)]
+    
+    style Client fill:#e1f5ff
+    style FastAPI fill:#fff4e1
+    style API fill:#ffe1f5
+    style CRUD fill:#e1ffe1
+    style DB fill:#f5e1ff
+    style MySQL fill:#ffe1e1
+```
+
+### Network Architecture (Mermaid)
+
+```mermaid
+graph TB
+    subgraph "Docker Network: bookstore-network"
+        subgraph "API Container"
+            FastAPI[FastAPI App<br/>Port 8000]
+        end
+        
+        subgraph "Database Container"
+            MySQL[(MySQL 8.0<br/>Port 3306)]
+            Volume[(Persistent Volume<br/>mysql_data)]
+        end
+    end
+    
+    Internet[Internet/Client] -->|HTTP:8000| FastAPI
+    FastAPI -->|mysql+pymysql| MySQL
+    MySQL -->|Data Storage| Volume
+    
+    style FastAPI fill:#4CAF50,color:#fff
+    style MySQL fill:#00758F,color:#fff
+    style Volume fill:#FF9800,color:#fff
+```
+
+---
+
 ## Request Flow: From Client to Database
 
 Let's trace a complete request flow when creating a book:
 
-### Step-by-Step Request Flow
+### Sequence Diagram (Mermaid)
 
+```mermaid
+sequenceDiagram
+    participant Client
+    participant FastAPI as FastAPI (main.py)
+    participant API as API Layer (api.py)
+    participant Schema as Schemas (schemas.py)
+    participant CRUD as Business Logic (crud.py)
+    participant DB as Database (database.py)
+    participant MySQL as MySQL Database
+
+    Client->>FastAPI: POST /api/v1/books/ + JSON
+    FastAPI->>API: Route to create() endpoint
+    API->>Schema: Validate against BookCreate
+    Schema-->>API: Validation OK
+    
+    API->>DB: get_session() dependency
+    DB-->>API: Database Session
+    
+    API->>CRUD: create_book(session, book)
+    CRUD->>Schema: Convert BookCreate to Book
+    CRUD->>DB: session.add(db_book)
+    CRUD->>DB: session.commit()
+    DB->>MySQL: INSERT INTO book (...)
+    MySQL-->>DB: Record created, ID returned
+    DB-->>CRUD: Transaction committed
+    CRUD->>DB: session.refresh(db_book)
+    CRUD-->>API: Book model with ID
+    
+    API->>Schema: Convert Book to BookRead
+    Schema-->>API: BookRead schema
+    API-->>FastAPI: JSON Response
+    FastAPI-->>Client: HTTP 200 OK + JSON
 ```
-┌─────────────────────────────────────────────────────────────┐
-│ STEP 1: Client sends HTTP POST request                     │
-│                                                              │
-│ POST /api/v1/books/                                         │
-│ Content-Type: application/json                              │
-│                                                              │
-│ {                                                            │
-│   "title": "The Great Gatsby",                              │
-│   "author": "F. Scott Fitzgerald",                          │
-│   "year": 1925,                                             │
-│   "price": 10.99,                                           │
-│   "in_stock": true                                          │
-│ }                                                            │
-└───────────────────────────────┬─────────────────────────────┘
-                                │
-                                ↓
-┌─────────────────────────────────────────────────────────────┐
-│ STEP 2: FastAPI receives request (main.py)                 │
-│                                                              │
-│ • Routes to api.py based on URL pattern                    │
-│ • Matches POST /api/v1/books/ → create() function          │
-└───────────────────────────────┬─────────────────────────────┘
-                                │
-                                ↓
-┌─────────────────────────────────────────────────────────────┐
-│ STEP 3: Request validation (api.py)                        │
-│                                                              │
-│ • FastAPI validates JSON body against BookCreate schema    │
-│ • Checks required fields: title, author, year, price       │
-│ • Validates data types                                      │
-│ • If invalid → returns 422 Unprocessable Entity            │
-└───────────────────────────────┬─────────────────────────────┘
-                                │
-                                ↓
-┌─────────────────────────────────────────────────────────────┐
-│ STEP 4: Dependency injection (database.py)                 │
-│                                                              │
-│ • FastAPI calls get_session() dependency                   │
-│ • Creates new database session                              │
-│ • Injects session into create() function                   │
-└───────────────────────────────┬─────────────────────────────┘
-                                │
-                                ↓
-┌─────────────────────────────────────────────────────────────┐
-│ STEP 5: Business logic (crud.py)                          │
-│                                                              │
-│ create_book(session, book):                                │
-│   1. Converts BookCreate → Book model                      │
-│   2. session.add(db_book)                                   │
-│   3. session.commit() → executes SQL INSERT                │
-│   4. session.refresh(db_book) → gets generated ID          │
-│   5. Returns Book model                                     │
-└───────────────────────────────┬─────────────────────────────┘
-                                │
-                                ↓
-┌─────────────────────────────────────────────────────────────┐
-│ STEP 6: Database operation (database.py → Database)         │
-│                                                              │
-│ SQL: INSERT INTO book (title, author, year, price, ...)   │
-│      VALUES ('The Great Gatsby', 'F. Scott Fitzgerald', ...)│
-│                                                              │
-│ Database stores the record and returns generated ID        │
-└───────────────────────────────┬─────────────────────────────┘
-                                │
-                                ↓
-┌─────────────────────────────────────────────────────────────┐
-│ STEP 7: Response serialization (api.py)                    │
-│                                                              │
-│ • FastAPI converts Book model → BookRead schema            │
-│ • Includes all fields: id, title, author, timestamps, etc. │
-│ • Serializes to JSON                                        │
-└───────────────────────────────┬─────────────────────────────┘
-                                │
-                                ↓
-┌─────────────────────────────────────────────────────────────┐
-│ STEP 8: Client receives response                           │
-│                                                              │
-│ HTTP 200 OK                                                 │
-│ {                                                            │
-│   "id": 1,                                                  │
-│   "title": "The Great Gatsby",                              │
-│   "author": "F. Scott Fitzgerald",                         │
-│   "year": 1925,                                             │
-│   "price": 10.99,                                           │
-│   "in_stock": true,                                         │
-│   "created_at": "2024-01-15T10:30:00",                     │
-│   "updated_at": "2024-01-15T10:30:00"                      │
-│ }                                                            │
-└─────────────────────────────────────────────────────────────┘
+
+### Request Flow Diagram (Mermaid)
+
+```mermaid
+flowchart TD
+    Start([Client sends POST request]) --> Validate{Validate Request}
+    Validate -->|Invalid| Error[Return 422 Error]
+    Validate -->|Valid| Inject[Inject DB Session]
+    Inject --> Convert[Convert BookCreate to Book]
+    Convert --> Add[Add to Session]
+    Add --> Commit[Commit Transaction]
+    Commit --> SQL[Execute SQL INSERT]
+    SQL --> Store[Store in Database]
+    Store --> Refresh[Refresh Book Model]
+    Refresh --> Serialize[Serialize to BookRead]
+    Serialize --> Response[Return JSON Response]
+    Response --> End([Client receives response])
+    
+    style Start fill:#4CAF50,color:#fff
+    style End fill:#4CAF50,color:#fff
+    style Error fill:#f44336,color:#fff
+    style Validate fill:#FF9800,color:#fff
+    style SQL fill:#2196F3,color:#fff
 ```
 
 ### Visual Architecture Diagram
@@ -495,6 +512,28 @@ How `create_db_and_tables()` connects with models:
 
 ### Local Development
 
+#### Option A: Using Docker Compose (Recommended)
+
+1. **Start Services**
+
+```bash
+# Build and start all services (API + MySQL)
+docker-compose up -d
+
+# View logs
+docker-compose logs -f api
+
+# Stop services
+docker-compose down
+```
+
+Access:
+- API: `http://127.0.0.1:8000`
+- Swagger UI: `http://127.0.0.1:8000/docs`
+- ReDoc: `http://127.0.0.1:8000/redoc`
+
+#### Option B: Local Python Environment
+
 1. **Setup Environment**
 
 ```bash
@@ -530,26 +569,44 @@ Access:
 
 ### Production Deployment Options
 
-#### Option 1: Docker Deployment
+#### Option 1: Docker Deployment (Recommended)
 
 **Dockerfile:**
 
 ```dockerfile
 FROM python:3.12-slim
 
+# Set working directory
 WORKDIR /app
 
-# Install dependencies
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Set environment variables
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
 
-# Copy application
+# Install system dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    gcc \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements file
+COPY requirements.txt .
+
+# Install Python dependencies
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
+
+# Copy application code
 COPY app/ ./app/
 
 # Expose port
 EXPOSE 8000
 
-# Run application
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/')" || exit 1
+
+# Run the application
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 ```
 
@@ -559,38 +616,79 @@ CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 version: '3.8'
 
 services:
+  # FastAPI Application
   api:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: fastapi-bookstore-api
     ports:
       - "8000:8000"
     environment:
-      - DATABASE_URL=mysql+pymysql://user:password@db:3306/bookstore
+      - DATABASE_URL=mysql+pymysql://bookstore_user:bookstore_password@db:3306/bookstore_db
+      - API_TITLE=BookStore API
+      - API_VERSION=1.0.0
+      - ROOT_PATH=/
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     volumes:
       - ./app:/app/app
+    restart: unless-stopped
+    networks:
+      - bookstore-network
 
+  # MySQL Database
   db:
     image: mysql:8.0
+    container_name: fastapi-bookstore-db
     environment:
-      - MYSQL_ROOT_PASSWORD=rootpassword
-      - MYSQL_DATABASE=bookstore
-      - MYSQL_USER=user
-      - MYSQL_PASSWORD=password
+      - MYSQL_ROOT_PASSWORD=root_password
+      - MYSQL_DATABASE=bookstore_db
+      - MYSQL_USER=bookstore_user
+      - MYSQL_PASSWORD=bookstore_password
     ports:
       - "3306:3306"
     volumes:
       - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-proot_password"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - bookstore-network
 
 volumes:
   mysql_data:
+    driver: local
+
+networks:
+  bookstore-network:
+    driver: bridge
 ```
 
 **Deploy:**
 
 ```bash
+# Build and start all services
 docker-compose up -d
+
+# View logs
+docker-compose logs -f
+
+# Stop services
+docker-compose down
+
+# Stop and remove volumes
+docker-compose down -v
 ```
+
+Once deployed, access:
+- API: `http://127.0.0.1:8000`
+- Swagger UI: `http://127.0.0.1:8000/docs`
+- API Endpoints: `http://127.0.0.1:8000/api/v1/books/`
 
 #### Option 2: Cloud Platform (AWS/GCP/Azure)
 
@@ -802,17 +900,26 @@ def get_books_by_author(session: Session, author: str):
 
 Understanding how components connect:
 
-### Import Chain
+### Import Chain (Mermaid)
 
-```
-main.py
-  ├──→ imports database.py (create_db_and_tables)
-  └──→ imports api.py (router)
-        └──→ imports crud.py
-              ├──→ imports models.py (Book)
-              └──→ imports schemas.py
-        └──→ imports schemas.py
-        └──→ imports database.py (get_session)
+```mermaid
+graph TD
+    Main[main.py] -->|imports| DB1[database.py<br/>create_db_and_tables]
+    Main -->|imports| API[api.py<br/>router]
+    API -->|imports| CRUD[crud.py]
+    API -->|imports| Schema1[schemas.py]
+    API -->|imports| DB2[database.py<br/>get_session]
+    CRUD -->|imports| Model[models.py<br/>Book]
+    CRUD -->|imports| Schema2[schemas.py]
+    
+    style Main fill:#4CAF50,color:#fff
+    style API fill:#2196F3,color:#fff
+    style CRUD fill:#FF9800,color:#fff
+    style Model fill:#9C27B0,color:#fff
+    style Schema1 fill:#F44336,color:#fff
+    style Schema2 fill:#F44336,color:#fff
+    style DB1 fill:#00BCD4,color:#fff
+    style DB2 fill:#00BCD4,color:#fff
 ```
 
 ### Data Flow
